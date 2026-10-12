@@ -52,9 +52,18 @@ export interface OAuthOptions {
   secret: string;
   /** Public origin of the server, e.g. https://mememcp.example.com */
   publicUrl: string;
+  /**
+   * Hosts allowed in redirect URIs. Open registration plus arbitrary redirect hosts would let anyone
+   * use this server's genuine sign-in page to phish Imgflip logins, or as an open redirect.
+   */
+  allowedRedirectHosts?: string[];
   fetch?: typeof fetch;
   now?: () => number;
 }
+
+/** claude.ai / Claude apps, plus loopback callbacks used by local clients such as Claude Code. */
+export const DEFAULT_REDIRECT_HOSTS = ["claude.ai", "claude.com"];
+const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
 /**
  * Stateless OAuth 2.1 authorization server for MCP clients such as claude.ai.
@@ -69,8 +78,10 @@ export class OAuthServer {
   private readonly sealer: Sealer;
   private readonly usedCodes = new Map<string, number>();
   private readonly now: () => number;
+  private readonly redirectHosts: string[];
 
   constructor(private readonly options: OAuthOptions) {
+    this.redirectHosts = (options.allowedRedirectHosts ?? DEFAULT_REDIRECT_HOSTS).map((h) => h.toLowerCase());
     this.issuer = options.publicUrl.replace(/\/+$/, "");
     this.resource = `${this.issuer}/mcp`;
     this.sealer = new Sealer(options.secret);
@@ -151,10 +162,10 @@ export class OAuthServer {
     }
 
     const uris = body.redirect_uris;
-    if (!Array.isArray(uris) || uris.length === 0 || uris.length > 10 || !uris.every(isAllowedRedirectUri)) {
+    if (!Array.isArray(uris) || uris.length === 0 || uris.length > 10 || !uris.every((u) => this.isAllowedRedirectUri(u))) {
       return sendJson(res, 400, {
         error: "invalid_redirect_uri",
-        error_description: "redirect_uris must be https URLs (or http on localhost).",
+        error_description: `redirect_uris must be https URLs on ${this.redirectHosts.join(", ")} or loopback callbacks.`,
       });
     }
     const requested = body.token_endpoint_auth_method;
@@ -216,7 +227,7 @@ export class OAuthServer {
       scope: q.get("scope") ?? undefined,
       exp: this.expiresIn(REQUEST_TTL_S),
     } satisfies RequestPayload);
-    sendHtml(res, 200, loginPage({ request, clientName: client.name }), redirectUri);
+    sendHtml(res, 200, loginPage({ request, clientName: client.name, returnHost: new URL(redirectUri).host }), redirectUri);
   }
 
   private async authorizeSubmit(req: IncomingMessage, res: ServerResponse) {
@@ -227,8 +238,9 @@ export class OAuthServer {
       return sendHtml(res, 400, errorPage("This sign-in link has expired. Start the connection again from your client."));
     }
     const clientName = this.client(r.cid)?.name;
+    const returnHost = new URL(r.redirect_uri).host;
     const page = (error: string, username?: string) =>
-      sendHtml(res, 200, loginPage({ request, clientName, error, username }), r.redirect_uri);
+      sendHtml(res, 200, loginPage({ request, clientName, returnHost, error, username }), r.redirect_uri);
 
     const apiKey = form.get("api_key")?.trim();
     const username = form.get("username")?.trim();
@@ -299,6 +311,16 @@ export class OAuthServer {
       if (!t || t.t !== "refresh" || this.expired(t.exp) || t.cid !== clientId || t.aud !== this.resource) {
         return sendJson(res, 400, { error: "invalid_grant", error_description: "Invalid or expired refresh token." });
       }
+      // Changing the Imgflip password or revoking the API key ends the session at the next refresh.
+      let valid: boolean;
+      try {
+        valid = await new ImgflipClient({ credentials: t.creds, fetch: this.options.fetch }).verifyCredentials();
+      } catch {
+        return sendJson(res, 503, { error: "temporarily_unavailable", error_description: "Could not reach Imgflip." });
+      }
+      if (!valid) {
+        return sendJson(res, 400, { error: "invalid_grant", error_description: "Imgflip credentials are no longer valid." });
+      }
       return this.issueTokens(res, clientId, t.creds, t.scope);
     }
     sendJson(res, 400, { error: "unsupported_grant_type" });
@@ -319,7 +341,20 @@ export class OAuthServer {
 
   private client(clientId: string): ClientPayload | undefined {
     const c = this.sealer.open<ClientPayload>(clientId);
-    return c?.t === "client" ? c : undefined;
+    // Re-checked so clients registered before an allowlist change stop working.
+    return c?.t === "client" && c.redirect_uris.every((u) => this.isAllowedRedirectUri(u)) ? c : undefined;
+  }
+
+  private isAllowedRedirectUri(value: unknown): boolean {
+    if (typeof value !== "string") return false;
+    try {
+      const u = new URL(value);
+      if (u.hash || u.username || u.password) return false;
+      if (LOOPBACK_HOSTS.includes(u.hostname)) return u.protocol === "http:" || u.protocol === "https:";
+      return u.protocol === "https:" && this.redirectHosts.includes(u.hostname.toLowerCase());
+    } catch {
+      return false;
+    }
   }
 
   private isOwnResource(resource: string): boolean {
@@ -340,18 +375,6 @@ export class OAuthServer {
     const nowS = Math.floor(this.now() / 1000);
     for (const [id, e] of this.usedCodes) if (e <= nowS) this.usedCodes.delete(id);
     this.usedCodes.set(jti, exp);
-  }
-}
-
-function isAllowedRedirectUri(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  try {
-    const u = new URL(value);
-    if (u.hash) return false;
-    if (u.protocol === "https:") return true;
-    return u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
-  } catch {
-    return false;
   }
 }
 

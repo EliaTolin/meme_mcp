@@ -25,14 +25,19 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** Fake Imgflip: valid accounts are alice/pw and API key "good-key". */
+/** Fake Imgflip: valid accounts are alice/<account.password> and API key "good-key". */
+const account = { password: "pw" };
+afterEach(() => {
+  account.password = "pw";
+});
+
 function imgflip() {
   return mockFetch({
     get_memes: () => GET_MEMES,
     caption_image: (call) => {
       const p = call.params;
       const valid =
-        call.headers.Authorization === "Bearer good-key" || (p.get("username") === "alice" && p.get("password") === "pw");
+        call.headers.Authorization === "Bearer good-key" || (p.get("username") === "alice" && p.get("password") === account.password);
       if (!valid) {
         return fail(call.headers.Authorization ? "Invalid API key" : "Invalid username/password combination");
       }
@@ -42,11 +47,16 @@ function imgflip() {
   });
 }
 
-async function start(extra: { authToken?: string } = {}) {
+async function start(extra: { authToken?: string; allowedRedirectHosts?: string[] } = {}) {
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
   const api = imgflip();
-  server = createMcpHttpServer({ ...extra, oauth: { secret: SECRET, publicUrl: base }, fetch: api.fetchFn });
+  const { allowedRedirectHosts, ...rest } = extra;
+  server = createMcpHttpServer({
+    ...rest,
+    oauth: { secret: SECRET, publicUrl: base, allowedRedirectHosts },
+    fetch: api.fetchFn,
+  });
   await new Promise<void>((r) => server!.listen(port, "127.0.0.1", r));
   return { base, calls: api.calls };
 }
@@ -286,12 +296,40 @@ describe("authorization endpoint", () => {
 });
 
 describe("registration", () => {
-  it("only accepts https or localhost redirect URIs", async () => {
+  it("only accepts Claude or loopback redirect URIs", async () => {
     const { base } = await start();
     expect((await register(base, { redirect_uris: ["http://evil.example/cb"] })).status).toBe(400);
+    // Phishing / open redirect: an attacker-controlled https callback named "Claude".
+    expect((await register(base, { redirect_uris: ["https://evil.example/cb"] })).status).toBe(400);
+    expect((await register(base, { redirect_uris: ["https://claude.ai.evil.example/cb"] })).status).toBe(400);
+    expect((await register(base, { redirect_uris: ["https://user:pw@claude.ai/cb"] })).status).toBe(400);
+    expect((await register(base, { redirect_uris: ["https://claude.com/api/mcp/auth_callback"] })).status).toBe(201);
     expect((await register(base, { redirect_uris: ["javascript:alert(1)"] })).status).toBe(400);
     expect((await register(base, { redirect_uris: [] })).status).toBe(400);
     expect((await register(base, { redirect_uris: ["http://localhost:6274/callback"] })).status).toBe(201);
+  });
+});
+
+describe("redirect allowlist", () => {
+  it("can be configured, and invalidates clients registered for hosts no longer allowed", async () => {
+    const { base } = await start({ allowedRedirectHosts: ["meme-client.example"] });
+    expect((await register(base, { redirect_uris: ["https://meme-client.example/cb"] })).status).toBe(201);
+    expect((await register(base, { redirect_uris: [REDIRECT] })).status).toBe(400);
+    await new Promise<void>((r) => server!.close(() => r()));
+
+    // A client_id sealed for evil.example (e.g. under an older config) is rejected and never redirected to.
+    const forged = new Sealer(SECRET).seal({ t: "client", redirect_uris: ["https://evil.example/cb"], auth: "none" });
+    const { base: base2 } = await start();
+    const res = await loginRequest(base2, forged, pkce().challenge, { redirect_uri: "https://evil.example/cb", response_type: "bad" });
+    expect(res.res.status).toBe(400);
+    expect(res.res.headers.get("location")).toBeNull();
+  });
+
+  it("shows where the user will be sent back to", async () => {
+    const { base } = await start();
+    const { data: client } = await register(base, { client_name: "Claude" });
+    const { html } = await loginRequest(base, client.client_id, pkce().challenge);
+    expect(html).toContain("you will return to <strong>claude.ai</strong>");
   });
 });
 
@@ -318,6 +356,16 @@ describe("token endpoint", () => {
     });
     expect(refreshed.status).toBe(200);
     expect(refreshed.data.access_token).toBeTruthy();
+
+    // Changing the Imgflip password ends the session at the next refresh.
+    account.password = "new-password";
+    const revoked = await tokenRequest(base, {
+      grant_type: "refresh_token",
+      refresh_token: refreshed.data.refresh_token,
+      client_id: client.client_id,
+    });
+    expect(revoked).toMatchObject({ status: 400, data: { error: "invalid_grant" } });
+    account.password = "pw";
 
     // An access token is not a refresh token.
     const wrongType = await tokenRequest(base, { grant_type: "refresh_token", refresh_token: tokens.data.access_token, client_id: client.client_id });
