@@ -59,6 +59,21 @@ export class ImgflipClient {
     return data.memes.map(normalizeTemplate);
   }
 
+  /**
+   * Checks the credentials without side effects: Imgflip validates them before the template,
+   * so captioning without a template_id fails with an auth error only when they are wrong.
+   */
+  async verifyCredentials(): Promise<boolean> {
+    try {
+      await this.request("caption_image", "POST", {});
+      return true;
+    } catch (err) {
+      if (err instanceof ImgflipError && err.kind === "auth") return false;
+      if (err instanceof ImgflipError && err.kind === "api") return true;
+      throw err;
+    }
+  }
+
   /** Premium. */
   async searchMemes(query: string, opts: { type?: TemplateType[]; includeNsfw?: boolean } = {}): Promise<Template[]> {
     const data = await this.request<{ memes: Template[] }>("search_memes", "POST", {
