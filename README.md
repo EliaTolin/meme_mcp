@@ -77,6 +77,22 @@ Imgflip credentials are sent **per request** in the `X-Imgflip-Api-Key` header, 
 
 If you set `MCP_AUTH_TOKEN`, the server requires `Authorization: Bearer <token>` and, when no credential headers are sent, falls back to the credentials in the environment. Without a token, environment credentials are **never** used over HTTP; otherwise anyone who knows the URL could create memes on your account.
 
+### Docker / Coolify
+
+The `Dockerfile` builds a small production image (Node 24 Alpine, runs as the non-root `node` user, built-in health check on `/health`) that starts the HTTP server on port 3000.
+
+```bash
+docker build -t imgflip-meme-mcp .
+docker run -p 3000:3000 -e MCP_AUTH_TOKEN=change-me -e IMGFLIP_API_KEY=... imgflip-meme-mcp
+```
+
+On Coolify: create a resource from this repository with the **Dockerfile** build pack, expose port 3000, set `MCP_AUTH_TOKEN` and the Imgflip credentials as secret environment variables, and attach a domain with HTTPS. Then connect Claude Code:
+
+```bash
+claude mcp add --transport http imgflip https://your-domain/mcp \
+  --header "Authorization: Bearer <MCP_AUTH_TOKEN>"
+```
+
 ## Usage
 
 Ask in plain language, e.g. *"Make a meme about deploying on Friday evening"*. Claude searches the templates, proposes numbered options such as:
