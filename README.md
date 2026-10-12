@@ -73,9 +73,13 @@ claude mcp add imgflip \
 PORT=3000 npm run start:http      # endpoint: http://localhost:3000/mcp, health: /health
 ```
 
-Imgflip credentials are sent **per request** in the `X-Imgflip-Api-Key` header, or `X-Imgflip-Username` + `X-Imgflip-Password`, so each user uses their own account.
+Each request is authenticated in one of these ways, so every user creates memes with **their own** Imgflip account:
 
-If you set `MCP_AUTH_TOKEN`, the server requires `Authorization: Bearer <token>` and, when no credential headers are sent, falls back to the credentials in the environment. Without a token, environment credentials are **never** used over HTTP; otherwise anyone who knows the URL could create memes on your account.
+- **OAuth login** (for claude.ai connectors and any OAuth-capable MCP client). Set `OAUTH_SECRET` (at least 32 characters, e.g. `openssl rand -hex 32`) and `PUBLIC_URL` (e.g. `https://mememcp.example.com`). When connecting, the user signs in on a page served by this server with their Imgflip API key or username and password. The server checks them with Imgflip and seals them into the encrypted access/refresh tokens (AES-256-GCM): there is no database and the server keeps no copy. Access tokens last 1 hour and refresh tokens 30 days. Changing `OAUTH_SECRET` signs everyone out.
+- **Credential headers**: `X-Imgflip-Api-Key`, or `X-Imgflip-Username` + `X-Imgflip-Password` (e.g. from Claude Code).
+- **`MCP_AUTH_TOKEN`**: if set, `Authorization: Bearer <token>` uses the credentials in the server environment, and requests without a valid token or OAuth login are rejected. Without a token, environment credentials are **never** used over HTTP.
+
+With OAuth enabled, requests with no credentials get `401` with a `WWW-Authenticate` header pointing to `/.well-known/oauth-protected-resource/mcp`. This is how clients discover the login flow (dynamic client registration, PKCE S256, refresh tokens).
 
 ### Docker / Coolify
 
@@ -86,12 +90,17 @@ docker build -t imgflip-meme-mcp .
 docker run -p 3000:3000 -e MCP_AUTH_TOKEN=change-me -e IMGFLIP_API_KEY=... imgflip-meme-mcp
 ```
 
-On Coolify: create a resource from this repository with the **Dockerfile** build pack, expose port 3000, set `MCP_AUTH_TOKEN` and the Imgflip credentials as secret environment variables, and attach a domain with HTTPS. Then connect Claude Code:
+On Coolify: create a resource from this repository with the **Dockerfile** build pack, expose port 3000, attach a domain with HTTPS and set `OAUTH_SECRET` and `PUBLIC_URL` as environment variables. No Imgflip credentials are needed on the server.
 
-```bash
-claude mcp add --transport http imgflip https://your-domain/mcp \
-  --header "Authorization: Bearer <MCP_AUTH_TOKEN>"
-```
+### Connecting clients to a hosted server
+
+- **Claude (claude.ai and the Claude apps)**: Settings → Connectors → Add custom connector, URL `https://your-domain/mcp`. Claude opens the Imgflip sign-in page.
+- **Claude Code**:
+  ```bash
+  claude mcp add --transport http -s user meme https://your-domain/mcp   # then /mcp → Authenticate
+  # or skip OAuth and send credentials as headers:
+  claude mcp add --transport http -s user meme https://your-domain/mcp --header "X-Imgflip-Api-Key: <key>"
+  ```
 
 ## Usage
 
