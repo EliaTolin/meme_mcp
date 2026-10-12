@@ -1,44 +1,44 @@
 # imgflip-meme-mcp
 
-MCP server per creare meme con l'[API di Imgflip](https://imgflip.com/api). Dai una frase a Claude: lui cerca i template adatti, ti propone alcune opzioni (template + testi per ogni box) e crea quella che scegli.
+An MCP server for making memes with the [Imgflip API](https://imgflip.com/api). Give Claude a sentence: it finds fitting templates, proposes a few options (template + text for every box) and creates the one you pick.
 
-<p align="center"><img src="docs/example-meme.jpg" alt="Meme Drake: no a cercare il template a mano, sì a chiederlo a Claude con imgflip-meme-mcp" width="360"></p>
+<p align="center"><img src="docs/example-meme.jpg" alt="Drake meme: no to scrolling for the right meme template, yes to asking Claude with imgflip-meme-mcp" width="360"></p>
 
-## Come funziona
+## How it works
 
-Il "ragionamento" lo fa il modello (Claude); l'MCP fornisce dati e azioni:
+The model (Claude) does the reasoning; the MCP server provides data and actions:
 
-1. `find_templates` / `list_templates` restituiscono i ~100 template più popolari con, per quelli noti, **quando si usano** (`usage`) e **cosa va in ogni box** (`box_roles`), da un catalogo curato in `src/catalog.ts`.
-2. Claude propone 3-5 opzioni con i testi già scritti.
-3. `create_meme` crea il meme scelto, restituisce l'URL e l'immagine (così Claude può controllarla).
+1. `find_templates` / `list_templates` return the ~100 most popular templates. For well-known formats they include **when to use them** (`usage`) and **what goes in each box** (`box_roles`), from a curated catalog in `src/catalog.ts`.
+2. Claude proposes 3-5 options with the captions already written.
+3. `create_meme` captions the chosen template and returns the URL plus the image, so Claude can check it.
 
-C'è anche un prompt MCP, `meme_from_sentence`, che avvia questo flusso.
+The `meme_from_sentence` MCP prompt starts this flow.
 
-## Strumenti
+## Tools
 
-| Tool | Cosa fa | Account |
+| Tool | What it does | Account |
 |---|---|---|
-| `list_templates` | Template popolari con note d'uso | gratis |
-| `find_templates` | Ricerca per concetto/emozione (IT/EN) sui popolari | gratis |
-| `get_template` | Dettagli di un template (popolari gratis, altri via Premium) | gratis / Premium |
-| `create_meme` | Crea il meme da template + testi | gratis |
-| `search_templates` | Ricerca nell'intero database (1M+ template) | Premium |
-| `create_gif_meme` | Meme su GIF animata | Premium |
-| `automeme` | Imgflip sceglie il template e usa il tuo testo | Premium |
-| `ai_meme` | Imgflip genera anche i testi | Premium |
+| `list_templates` | Popular templates with usage notes | free |
+| `find_templates` | Search popular templates by concept/emotion (English or Italian) | free |
+| `get_template` | Details for a template (popular IDs free, others via Premium) | free / Premium |
+| `create_meme` | Caption a template | free |
+| `search_templates` | Search the full database (1M+ templates) | Premium |
+| `create_gif_meme` | Caption an animated GIF | Premium |
+| `automeme` | Imgflip picks the template for your text | Premium |
+| `ai_meme` | Imgflip writes the captions too | Premium |
 
-Con un account gratuito i tool Premium rispondono con un errore chiaro che suggerisce l'alternativa gratuita. Anche la rimozione del watermark (`no_watermark`) è Premium.
+On a free account the Premium tools return a clear error that points to the free alternative. Removing the watermark (`no_watermark`) is also Premium.
 
-## Autenticazione
+## Authentication
 
-Variabili d'ambiente (vedi `.env.example`):
+Environment variables (see `.env.example`):
 
-- `IMGFLIP_API_KEY`: metodo consigliato, la key si crea dalle API Settings di Imgflip;
-- oppure `IMGFLIP_USERNAME` + `IMGFLIP_PASSWORD`: credenziali dell'account (metodo storico, ancora funzionante).
+- `IMGFLIP_API_KEY`: recommended; create a key in Imgflip's API Settings.
+- or `IMGFLIP_USERNAME` + `IMGFLIP_PASSWORD`: your account credentials (the legacy method, still supported).
 
-Se ci sono entrambi i metodi, vince l'API key. Senza credenziali si possono consultare i template, ma non creare meme.
+If both are set, the API key wins. Without credentials you can browse templates but not create memes.
 
-## Installazione
+## Installation
 
 ```bash
 npm install
@@ -49,8 +49,8 @@ npm run build
 
 ```bash
 claude mcp add imgflip \
-  -e IMGFLIP_USERNAME=tuo_username -e IMGFLIP_PASSWORD=tua_password \
-  -- node /percorso/assoluto/dist/stdio.js
+  -e IMGFLIP_USERNAME=your_username -e IMGFLIP_PASSWORD=your_password \
+  -- node /absolute/path/dist/stdio.js
 ```
 
 ### Claude Desktop (`claude_desktop_config.json`)
@@ -60,29 +60,38 @@ claude mcp add imgflip \
   "mcpServers": {
     "imgflip": {
       "command": "node",
-      "args": ["/percorso/assoluto/dist/stdio.js"],
-      "env": { "IMGFLIP_USERNAME": "tuo_username", "IMGFLIP_PASSWORD": "tua_password" }
+      "args": ["/absolute/path/dist/stdio.js"],
+      "env": { "IMGFLIP_USERNAME": "your_username", "IMGFLIP_PASSWORD": "your_password" }
     }
   }
 }
 ```
 
-### Server HTTP (Streamable HTTP, stateless)
+### HTTP server (Streamable HTTP, stateless)
 
 ```bash
 PORT=3000 npm run start:http      # endpoint: http://localhost:3000/mcp, health: /health
 ```
 
-Le credenziali Imgflip arrivano **per richiesta** negli header `X-Imgflip-Api-Key`, oppure `X-Imgflip-Username` + `X-Imgflip-Password`, così ogni utente usa il proprio account.
+Imgflip credentials are sent **per request** in the `X-Imgflip-Api-Key` header, or `X-Imgflip-Username` + `X-Imgflip-Password`, so each user uses their own account.
 
-Se imposti `MCP_AUTH_TOKEN`, il server richiede `Authorization: Bearer <token>` e, in assenza di header, usa le credenziali delle variabili d'ambiente. Senza token le credenziali d'ambiente **non** vengono mai usate via HTTP: altrimenti chiunque conosca l'URL creerebbe meme con il tuo account.
+If you set `MCP_AUTH_TOKEN`, the server requires `Authorization: Bearer <token>` and, when no credential headers are sent, falls back to the credentials in the environment. Without a token, environment credentials are **never** used over HTTP; otherwise anyone who knows the URL could create memes on your account.
 
-## Test
+## Usage
+
+Ask in plain language, e.g. *"Make a meme about deploying on Friday evening"*. Claude searches the templates, proposes numbered options such as:
+
+1. **This Is Fine**: "Deploying on Friday at 6pm" / "This is fine"
+2. **Drake**: "Deploying on Monday morning" / "Deploying on Friday at 6:59pm"
+
+Reply with your pick and it creates the meme and shares the link.
+
+## Tests
 
 ```bash
-npm test                 # unit + integrazione (fetch mockato, MCP in-memory e via HTTP)
-npm run build && IMGFLIP_USERNAME=... IMGFLIP_PASSWORD=... npm run test:live   # API reale, crea 1 meme
+npm test                 # unit + integration (mocked fetch, in-memory and HTTP MCP clients)
+npm run build && IMGFLIP_USERNAME=... IMGFLIP_PASSWORD=... npm run test:live   # real API, creates 1 meme
 npm run inspect          # MCP Inspector
 ```
 
-Nota: i meme creati sono pubblici tramite URL (non elencati) e Imgflip può cancellare quelli con pochissime visualizzazioni.
+Note: created memes are public via their URL (unlisted), and Imgflip may delete images with very few views.

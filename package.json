@@ -1,7 +1,7 @@
 {
   "name": "imgflip-meme-mcp",
   "version": "0.1.0",
-  "description": "MCP server per creare meme con l'API di Imgflip: trova il template giusto per una frase e genera il meme.",
+  "description": "MCP server for making memes with the Imgflip API: finds the right template for a sentence and captions it.",
   "type": "module",
   "license": "MIT",
   "bin": {

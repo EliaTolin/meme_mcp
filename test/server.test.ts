@@ -33,8 +33,8 @@ describe("MCP server", () => {
 
     const { prompts } = await client.listPrompts();
     expect(prompts.map((p) => p.name)).toEqual(["meme_from_sentence"]);
-    const prompt = await client.getPrompt({ name: "meme_from_sentence", arguments: { sentence: "il lunedì" } });
-    expect((prompt.messages[0].content as any).text).toContain('"il lunedì"');
+    const prompt = await client.getPrompt({ name: "meme_from_sentence", arguments: { sentence: "Mondays" } });
+    expect((prompt.messages[0].content as any).text).toContain('"Mondays"');
 
     expect(client.getInstructions()).toContain("find_templates");
   });
@@ -83,20 +83,20 @@ describe("MCP server", () => {
 
     const result = (await client.callTool({
       name: "create_meme",
-      arguments: { template_id: "181913649", texts: ["Deploy di lunedì", "Deploy di venerdì sera"], uppercase: true },
+      arguments: { template_id: "181913649", texts: ["Deploy on Monday", "Deploy on Friday evening"], uppercase: true },
     })) as CallToolResult;
 
     expect(result.isError).toBeFalsy();
     const data = jsonOf(result);
     expect(data).toMatchObject({ url: "https://i.imgflip.com/abc.jpg", page_url: "https://imgflip.com/i/abc" });
-    expect(data.texts).toEqual(["DEPLOY DI LUNEDÌ", "DEPLOY DI VENERDÌ SERA"]);
+    expect(data.texts).toEqual(["DEPLOY ON MONDAY", "DEPLOY ON FRIDAY EVENING"]);
     expect(data.warning).toBeUndefined();
 
     const image = result.content.find((c) => c.type === "image") as any;
     expect(image).toMatchObject({ mimeType: "image/jpeg", data: PNG.toString("base64") });
 
     const caption = calls.find((c) => c.url.endsWith("/caption_image"))!;
-    expect(caption.params.get("boxes[0][text]")).toBe("DEPLOY DI LUNEDÌ");
+    expect(caption.params.get("boxes[0][text]")).toBe("DEPLOY ON MONDAY");
     expect(caption.params.get("username")).toBe("u");
   });
 

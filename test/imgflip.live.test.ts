@@ -24,7 +24,7 @@ describe.skipIf(!hasCredentials)("live Imgflip via stdio", () => {
     const client = await stdioClient();
     try {
       const found = jsonOf(
-        await client.callTool({ name: "find_templates", arguments: { query: "preferire una cosa invece di un'altra" } }),
+        await client.callTool({ name: "find_templates", arguments: { query: "preferring one thing over another" } }),
       );
       expect(found.count).toBeGreaterThan(0);
       const drake = found.templates.find((t: any) => t.id === "181913649");
@@ -34,7 +34,7 @@ describe.skipIf(!hasCredentials)("live Imgflip via stdio", () => {
         name: "create_meme",
         arguments: {
           template_id: drake.id,
-          texts: ["Testare l'MCP a mano", "Farlo con vitest"],
+          texts: ["Testing the MCP by hand", "Testing it with vitest"],
           uppercase: true,
         },
       })) as CallToolResult;
