@@ -14,7 +14,7 @@ export interface HttpOptions {
   /** When set, clients may send `Authorization: Bearer <authToken>` to use the env credentials. */
   authToken?: string;
   /** Enables the OAuth login flow (needed by claude.ai connectors). */
-  oauth?: { secret: string; publicUrl: string };
+  oauth?: { secret: string; publicUrl: string; allowedRedirectHosts?: string[] };
   env?: Record<string, string | undefined>;
   fetch?: typeof fetch;
 }
@@ -139,7 +139,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   if (Boolean(secret) !== Boolean(publicUrl)) {
     console.error("[imgflip-meme-mcp] OAuth needs both OAUTH_SECRET and PUBLIC_URL; OAuth is disabled.");
   }
-  const oauth = secret && publicUrl ? { secret, publicUrl } : undefined;
+  const allowedRedirectHosts = process.env.OAUTH_REDIRECT_HOSTS?.split(",").map((h) => h.trim()).filter(Boolean);
+  const oauth = secret && publicUrl ? { secret, publicUrl, allowedRedirectHosts } : undefined;
   createMcpHttpServer({ authToken, oauth }).listen(port, () => {
     const modes = [authToken && "token", oauth && `OAuth at ${publicUrl}`].filter(Boolean).join(", ");
     console.error(`[imgflip-meme-mcp] HTTP listening on http://localhost:${port}/mcp${modes ? ` (${modes})` : ""}`);

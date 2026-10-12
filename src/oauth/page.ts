@@ -4,12 +4,14 @@ const escape = (s: string) =>
 export interface LoginPageOptions {
   request: string;
   clientName?: string;
+  /** Host the user is sent back to after signing in, shown so a lookalike client name cannot hide it. */
+  returnHost: string;
   error?: string;
   username?: string;
 }
 
 /** Imgflip sign-in form shown during the OAuth authorization step. No scripts, so CSP can forbid them. */
-export function loginPage({ request, clientName, error, username }: LoginPageOptions): string {
+export function loginPage({ request, clientName, returnHost, error, username }: LoginPageOptions): string {
   const client = clientName ? `<strong>${escape(clientName)}</strong>` : "An MCP client";
   return `<!doctype html>
 <html lang="en">
@@ -45,7 +47,7 @@ export function loginPage({ request, clientName, error, username }: LoginPageOpt
 <body>
 <main>
   <h1>Connect your Imgflip account</h1>
-  <p>${client} wants to create memes with your Imgflip account.</p>
+  <p>${client} wants to create memes with your Imgflip account. After signing in you will return to <strong>${escape(returnHost)}</strong>.</p>
   ${error ? `<div class="error" role="alert">${escape(error)}</div>` : ""}
   <form method="post" action="authorize">
     <input type="hidden" name="request" value="${escape(request)}">
